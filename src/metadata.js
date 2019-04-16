@@ -4,7 +4,8 @@ class Metadata {
       correlationId: preceedingMetadata.correlationId,
       causationStreamName: preceedingMetadata.streamName,
       streamName: preceedingMetadata.streamName,
-      correlationStreamName: preceedingMetadata.correlationStreamName
+      correlationStreamName: preceedingMetadata.correlationStreamName,
+      userId: preceedingMetadata.userId
     })
   }
 

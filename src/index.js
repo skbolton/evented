@@ -1,82 +1,68 @@
-import uuidV4 from 'uuid/v4'
-import MessageHandler from './messageHandler'
-import Metadata from './metadata'
+import Message from './message'
 
-const _metadata = Symbol('Metadata')
-const _data = Symbol('Data')
+const createMessageConstructor = eventName => {
+  /**
+   * Creates new message by "following" a previous message.
+   *
+   * The term follow comes from eventide docs. Following means to line up
+   * the metadata so that a new event is linked to the previous event. In
+   * debugging it would be available to see the whole workflow and get
+   * and accurate picture as to what happened if something goes wrong.
+   * See Metadata.follow for details on how metadata gets linked between
+   * events.
+   *
+   * Following can also include copying over fields from the preceeding events
+   * data.
+   *
+   * @param {Message} preceedingMessage - the event that you would like to follow
+   * @param {Object} opts - the options of what keys to possibly copy over
+   * @param {Array} opts.exclude - the keys to exclude when copying over keys
+   * @param {Array} [opts.copy=all] - the keys to copy over if `exclude` option not passed
+   *
+   * @returns {Message}
+   */
+  const follow = (preceedingMessage, opts) =>
+    Message.follow(eventName, preceedingMessage, opts)
 
-const MessageCreator = eventName => {
-  const createMessage = (attrs = {}) => {
-    const prototypeMethods = {
-      toWrite (streamName = this[_metadata].streamName) {
-        return {
-          id: this[_metadata].id || uuidV4(),
-          streamName,
-          // TODO: need to add streamname here or have writer add it
-          type: eventName,
-          data: this[_data],
-          metadata: this[_metadata].toWrite()
-        }
-      },
-      attributes () {
-        return this[_data]
-      }
-    }
-
-    const message = Object.create(prototypeMethods)
-    message[_data] = {}
-    message[_metadata] = new Metadata()
-    const proxiedMessage = new Proxy(
-      message,
-      new MessageHandler(_data, _metadata)
-    )
-    Object.entries(attrs).forEach(([key, value]) => {
-      proxiedMessage[key] = value
-    })
-
-    return proxiedMessage
-  }
-
-  createMessage.follow = (
-    preceedingEvent,
-    { copy = Object.keys(preceedingEvent.attributes()), exclude } = {}
-  ) => {
-    const metadata = preceedingEvent[_metadata]
-    const data = preceedingEvent.attributes()
-
-    const keysToCopyOver = exclude
-      ? Object.keys(data).filter(key => !exclude.includes(key))
-      : copy
-
-    const nextMetadata = Metadata.follow(metadata)
-    const nextData = keysToCopyOver.reduce((nextData, key) => {
-      nextData[key] = preceedingEvent[key]
-      return nextData
-    }, {})
-
-    return createMessage(
-      nextData,
-      Object.assign({}, nextMetadata.toWrite(), {
-        id: data.id,
-        streamName: data.streamName
+  /**
+   * Creates a new event by reading in the raw form that was persisted to message store
+   *
+   * @param {object} rawEvent - a raw event tide database message
+   *
+   * @returns {Message}
+   */
+  const fromRead = rawEvent =>
+    new Message(
+      eventName,
+      rawEvent.data,
+      Object.assign({}, rawEvent.metadata, {
+        id: rawEvent.id,
+        streamName: rawEvent.streamName
       })
     )
+
+  /**
+   * Creates a message by manually building one
+   *
+   * Usually events will come from either hydrating one from a previous database
+   * write or by following a previous event. This case handles when you have the
+   * very first message in a workflow that does not have any messages before it
+   * and you need to fully scaffold one out with all the requried metadata and data
+   *
+   * @param {Object} buildArgs - options for how to build event
+   * @param {Object} [buildArgs.data={}] - what data to put on new event
+   * @param {Object} [buildArgs.metadata={}] - what metadata to put on new event
+   *
+   * @returns {Message}
+   */
+  const build = ({ data = {}, metadata = {} } = {}) =>
+    new Message(eventName, data, metadata)
+
+  return {
+    follow,
+    fromRead,
+    build
   }
-
-  createMessage.fromRead = rawEvent => {
-    const metadata = Object.assign({}, rawEvent.metadata, {
-      id: rawEvent.id,
-      streamName: rawEvent.streamName
-    })
-
-    const createdMessage = createMessage(rawEvent.data)
-    // add metadata before returning
-    createdMessage[_metadata] = new Metadata(metadata)
-
-    return createdMessage
-  }
-
-  return createMessage
 }
 
-export default MessageCreator
+export default createMessageConstructor
